@@ -182,8 +182,10 @@ func CheckoutCommit(c *Client, opts CheckoutOptions, commit Commitish) error {
 		}
 	}
 
-	// Now actually read the tree into the index
-	readtreeopts := ReadTreeOptions{Update: true, Merge: true}
+	// We don't pass update to ReadTree, because then we would lose our staged
+	// changes. Instead, we get a list of modified files and after reading
+	// the index do a CheckoutIndex on all the files that *weren't* different
+	readtreeopts := ReadTreeOptions{Merge: true}
 	if opts.Force {
 		readtreeopts.Merge = false
 		readtreeopts.Reset = true
@@ -191,7 +193,66 @@ func CheckoutCommit(c *Client, opts CheckoutOptions, commit Commitish) error {
 	if opts.IgnoreSkipWorktreeBits {
 		readtreeopts.NoSparseCheckout = true
 	}
-	if _, err := ReadTree(c, readtreeopts, cid); err != nil {
+
+	// Get a diff on staged or modified files that should be left unmolested
+	headtree, err := head.CommitID(c)
+	if err != nil {
+		return err
+	}
+	stageddiffs, err := DiffIndex(c, DiffIndexOptions{Cached: true}, nil, headtree, nil)
+	if err != nil {
+		return err
+	}
+	modifieddiffs, err := DiffIndex(c, DiffIndexOptions{}, nil, headtree, nil)
+	if err != nil {
+		return err
+	}
+
+	// Read the new tree into memory.
+	idx, err := ReadTree(c, readtreeopts, cid)
+	if err != nil {
+		return err
+	}
+
+	var checkoutfiles []File
+newfiles:
+	for _, obj := range idx.Objects {
+		if !opts.Force {
+			for _, staged := range stageddiffs {
+				// Add the staged change back to the index, and don't
+				// overwrite when switching branches. This doesn't apply
+				// if a checkout/reset it forced.
+				if err := idx.AddStage(c, staged.Name, staged.Dst.FileMode, staged.Dst.Sha1, Stage0, uint32(staged.DstSize), 0, UpdateIndexOptions{}); err != nil {
+					return err
+				}
+				continue newfiles
+			}
+		}
+		// If the file had been modified, don't overwrite
+		// it when switching branches, but we don't do anything
+		// about the index and don't care what the change was.
+		for _, mod := range modifieddiffs {
+			if mod.Name == obj.PathName {
+				continue newfiles
+			}
+		}
+		f, err := obj.PathName.FilePath(c)
+		if err != nil {
+			return err
+		}
+		checkoutfiles = append(checkoutfiles, f)
+	}
+
+	// Now update the files on the filesystem.
+	if err := CheckoutIndexUncommited(c, idx, CheckoutIndexOptions{Force: true, UpdateStat: true}, checkoutfiles); err != nil {
+		return err
+	}
+	f, err := c.GitDir.Create("index")
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	if err := idx.WriteIndex(f); err != nil {
 		return err
 	}
 
