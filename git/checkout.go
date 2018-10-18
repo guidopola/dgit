@@ -184,12 +184,9 @@ func CheckoutCommit(c *Client, opts CheckoutOptions, commit Commitish) error {
 
 	// We don't pass update to ReadTree, because then we would lose our staged
 	// changes. Instead, we get a list of modified files and after reading
-	// the index do a CheckoutIndex on all the files that *weren't* different
-	readtreeopts := ReadTreeOptions{Merge: true}
-	if opts.Force {
-		readtreeopts.Merge = false
-		readtreeopts.Reset = true
-	}
+	// the index do a CheckoutIndex on all the files that weren't different
+	readtreeopts := ReadTreeOptions{Reset: true}
+
 	if opts.IgnoreSkipWorktreeBits {
 		readtreeopts.NoSparseCheckout = true
 	}
@@ -227,13 +224,13 @@ newfiles:
 				}
 				continue newfiles
 			}
-		}
-		// If the file had been modified, don't overwrite
-		// it when switching branches, but we don't do anything
-		// about the index and don't care what the change was.
-		for _, mod := range modifieddiffs {
-			if mod.Name == obj.PathName {
-				continue newfiles
+			// If the file had been modified, don't overwrite
+			// it when switching branches, but we don't do anything
+			// about the index and don't care what the change was.
+			for _, mod := range modifieddiffs {
+				if mod.Name == obj.PathName {
+					continue newfiles
+				}
 			}
 		}
 		f, err := obj.PathName.FilePath(c)
@@ -243,16 +240,18 @@ newfiles:
 		checkoutfiles = append(checkoutfiles, f)
 	}
 
-	// Now update the files on the filesystem.
-	if err := CheckoutIndexUncommited(c, idx, CheckoutIndexOptions{Force: true, UpdateStat: true}, checkoutfiles); err != nil {
-		return err
-	}
+	// Write the index before checking out so that ls-files -k works.
 	f, err := c.GitDir.Create("index")
 	if err != nil {
 		return err
 	}
 	defer f.Close()
 	if err := idx.WriteIndex(f); err != nil {
+		return err
+	}
+
+	// Now update the files on the filesystem.
+	if err := CheckoutIndexUncommited(c, idx, CheckoutIndexOptions{Force: true, UpdateStat: true}, checkoutfiles); err != nil {
 		return err
 	}
 
