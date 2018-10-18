@@ -186,7 +186,9 @@ func CheckoutCommit(c *Client, opts CheckoutOptions, commit Commitish) error {
 	// changes. Instead, we get a list of modified files and after reading
 	// the index do a CheckoutIndex on all the files that weren't different
 	readtreeopts := ReadTreeOptions{Reset: true}
-
+	if opts.Force {
+		readtreeopts.Update = true
+	}
 	if opts.IgnoreSkipWorktreeBits {
 		readtreeopts.NoSparseCheckout = true
 	}
@@ -212,9 +214,12 @@ func CheckoutCommit(c *Client, opts CheckoutOptions, commit Commitish) error {
 	}
 
 	var checkoutfiles []File
-newfiles:
-	for _, obj := range idx.Objects {
-		if !opts.Force {
+	if !opts.Force {
+	newfiles:
+		for _, obj := range idx.Objects {
+			if obj.SkipWorktree() {
+				continue newfiles
+			}
 			for _, staged := range stageddiffs {
 				// Add the staged change back to the index, and don't
 				// overwrite when switching branches. This doesn't apply
@@ -223,21 +228,21 @@ newfiles:
 					return err
 				}
 				continue newfiles
-			}
-			// If the file had been modified, don't overwrite
-			// it when switching branches, but we don't do anything
-			// about the index and don't care what the change was.
-			for _, mod := range modifieddiffs {
-				if mod.Name == obj.PathName {
-					continue newfiles
+				// If the file had been modified, don't overwrite
+				// it when switching branches, but we don't do anything
+				// about the index and don't care what the change was.
+				for _, mod := range modifieddiffs {
+					if mod.Name == obj.PathName {
+						continue newfiles
+					}
 				}
 			}
+			f, err := obj.PathName.FilePath(c)
+			if err != nil {
+				return err
+			}
+			checkoutfiles = append(checkoutfiles, f)
 		}
-		f, err := obj.PathName.FilePath(c)
-		if err != nil {
-			return err
-		}
-		checkoutfiles = append(checkoutfiles, f)
 	}
 
 	// Write the index before checking out so that ls-files -k works.
