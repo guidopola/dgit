@@ -831,9 +831,11 @@ func checkMergeAndUpdate(c *Client, opt ReadTreeOptions, origidx map[IndexPath]*
 		}
 	}
 
-	if !opt.DryRun && opt.Update {
-		if err := CheckoutIndexUncommited(c, newidx, CheckoutIndexOptions{Quiet: true, Force: true, Prefix: opt.Prefix}, files); err != nil {
-			return err
+	if !opt.DryRun {
+		if opt.Update {
+			if err := CheckoutIndexUncommited(c, newidx, CheckoutIndexOptions{Quiet: true, Force: true, Prefix: opt.Prefix}, files); err != nil {
+				return err
+			}
 		}
 
 		// Convert to a map for constant time lookup in our loop..
@@ -860,10 +862,16 @@ func checkMergeAndUpdate(c *Client, opt ReadTreeOptions, origidx map[IndexPath]*
 			// original index, so delete it if it hasn't been
 			// changed on the filesystem.
 			if path.IsClean(c, entry.Sha1) {
-				if err := removeFileClean(file); err != nil {
-					return err
+				if opt.Update {
+					if err := removeFileClean(file); err != nil {
+						return err
+					}
 				}
 			} else if !opt.NoSparseCheckout {
+				// We handle sparse checkout whether or not
+				// update is set. This prevents having
+				// to duplicate the logic in checkout.
+				// (I have no idea if this makes sense or not)
 				if !checkSparseMatches(c, opt, path, sparsePatterns) {
 					if file.Exists() {
 						if err := removeFileClean(file); err != nil {
@@ -890,8 +898,10 @@ func checkMergeAndUpdate(c *Client, opt ReadTreeOptions, origidx map[IndexPath]*
 					}
 					continue
 				}
-				if err := entry.RefreshStat(c); err != nil {
-					return err
+				if opt.Update {
+					if err := entry.RefreshStat(c); err != nil {
+						return err
+					}
 				}
 			}
 		}

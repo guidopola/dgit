@@ -220,12 +220,22 @@ func CheckoutCommit(c *Client, opts CheckoutOptions, commit Commitish) error {
 	}
 
 	var checkoutfiles []File
-	if !opts.Force {
-	newfiles:
-		for _, obj := range idx.Objects {
-			if obj.SkipWorktree() {
-				continue newfiles
+newfiles:
+	for _, obj := range idx.Objects {
+		f, err := obj.PathName.FilePath(c)
+		if err != nil {
+			return err
+		}
+
+		if obj.SkipWorktree() && !opts.IgnoreSkipWorktreeBits {
+			if f.Exists() {
+				if err := os.Remove(f.String()); err != nil {
+					return err
+				}
 			}
+			continue newfiles
+		}
+		if !opts.Force {
 			for _, staged := range stageddiffs {
 				// Add the staged change back to the index, and don't
 				// overwrite when switching branches. This doesn't apply
@@ -242,10 +252,6 @@ func CheckoutCommit(c *Client, opts CheckoutOptions, commit Commitish) error {
 				if mod.Name == obj.PathName {
 					continue newfiles
 				}
-			}
-			f, err := obj.PathName.FilePath(c)
-			if err != nil {
-				return err
 			}
 			checkoutfiles = append(checkoutfiles, f)
 		}
