@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"os"
+	"strings"
 )
 
 // CheckoutOptions represents the options that may be passed to
@@ -202,9 +203,24 @@ func CheckoutCommit(c *Client, opts CheckoutOptions, commit Commitish) error {
 	if err != nil {
 		return err
 	}
-	modifieddiffs, err := DiffIndex(c, DiffIndexOptions{}, nil, headtree, nil)
-	if err != nil {
-		return err
+	if !opts.Force {
+		modifieddiffs, err := DiffFiles(c, DiffFilesOptions{}, nil)
+		if err != nil {
+			return err
+		}
+		if len(modifieddiffs) > 0 {
+			var mfiles []string
+			for _, m := range modifieddiffs {
+				f, err := m.Name.FilePath(c)
+				if err != nil {
+					return err
+				}
+				mfiles = append(mfiles, f.String())
+			}
+			return fmt.Errorf(`error: Your local changes to the following files would be overwritten by checkout.
+	%v
+Please commit your changes or discard them before switching branches.`, strings.Join(mfiles, "\n\t"))
+		}
 	}
 
 	// Keep a copy of the original index so that we can delete
@@ -244,14 +260,6 @@ newfiles:
 					return err
 				}
 				continue newfiles
-			}
-			// If the file had been modified, don't overwrite
-			// it when switching branches, but we don't do anything
-			// about the index and don't care what the change was.
-			for _, mod := range modifieddiffs {
-				if mod.Name == obj.PathName {
-					continue newfiles
-				}
 			}
 			checkoutfiles = append(checkoutfiles, f)
 		}
