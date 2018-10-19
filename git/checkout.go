@@ -221,6 +221,7 @@ func CheckoutCommit(c *Client, opts CheckoutOptions, commit Commitish) error {
 				continue newfiles
 			}
 			for _, staged := range stageddiffs {
+				fmt.Printf("Staged: %v Src: %v Dst: %v\n", staged, staged.Src, staged.Dst)
 				// Add the staged change back to the index, and don't
 				// overwrite when switching branches. This doesn't apply
 				// if a checkout/reset it forced.
@@ -228,13 +229,13 @@ func CheckoutCommit(c *Client, opts CheckoutOptions, commit Commitish) error {
 					return err
 				}
 				continue newfiles
-				// If the file had been modified, don't overwrite
-				// it when switching branches, but we don't do anything
-				// about the index and don't care what the change was.
-				for _, mod := range modifieddiffs {
-					if mod.Name == obj.PathName {
-						continue newfiles
-					}
+			}
+			// If the file had been modified, don't overwrite
+			// it when switching branches, but we don't do anything
+			// about the index and don't care what the change was.
+			for _, mod := range modifieddiffs {
+				if mod.Name == obj.PathName {
+					continue newfiles
 				}
 			}
 			f, err := obj.PathName.FilePath(c)
@@ -255,11 +256,11 @@ func CheckoutCommit(c *Client, opts CheckoutOptions, commit Commitish) error {
 		return err
 	}
 
+	fmt.Printf("Files: %v", checkoutfiles)
 	// Now update the files on the filesystem.
-	if err := CheckoutIndexUncommited(c, idx, CheckoutIndexOptions{Force: true, UpdateStat: true}, checkoutfiles); err != nil {
+	if err := CheckoutIndex(c, CheckoutIndexOptions{Force: true, UpdateStat: true}, checkoutfiles); err != nil {
 		return err
 	}
-
 	var origB string
 	// Get the original HEAD branchname for the reflog
 	//origB = Branch(head).BranchName()

@@ -831,7 +831,7 @@ func checkMergeAndUpdate(c *Client, opt ReadTreeOptions, origidx map[IndexPath]*
 		}
 	}
 
-	if !opt.DryRun && (opt.Update || opt.Reset) {
+	if !opt.DryRun && opt.Update {
 		if err := CheckoutIndexUncommited(c, newidx, CheckoutIndexOptions{Quiet: true, Force: true, Prefix: opt.Prefix}, files); err != nil {
 			return err
 		}
