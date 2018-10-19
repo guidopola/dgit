@@ -207,6 +207,12 @@ func CheckoutCommit(c *Client, opts CheckoutOptions, commit Commitish) error {
 		return err
 	}
 
+	// Keep a copy of the original index so that we can delete
+	// removed files later.
+	origidx, err := c.GitDir.ReadIndex()
+	if err != nil {
+		return err
+	}
 	// Read the new tree into memory.
 	idx, err := ReadTree(c, readtreeopts, cid)
 	if err != nil {
@@ -221,7 +227,6 @@ func CheckoutCommit(c *Client, opts CheckoutOptions, commit Commitish) error {
 				continue newfiles
 			}
 			for _, staged := range stageddiffs {
-				fmt.Printf("Staged: %v Src: %v Dst: %v\n", staged, staged.Src, staged.Dst)
 				// Add the staged change back to the index, and don't
 				// overwrite when switching branches. This doesn't apply
 				// if a checkout/reset it forced.
@@ -256,7 +261,22 @@ func CheckoutCommit(c *Client, opts CheckoutOptions, commit Commitish) error {
 		return err
 	}
 
-	fmt.Printf("Files: %v", checkoutfiles)
+	// Delete any old files
+	newidxmap := idx.GetMap()
+	for _, obj := range origidx.Objects {
+		if !newidxmap.Contains(obj.PathName) {
+			if obj.PathName.IsClean(c, obj.Sha1) {
+				f, err := obj.PathName.FilePath(c)
+				if err != nil {
+					return err
+				}
+				if err := os.RemoveAll(f.String()); err != nil {
+					return err
+				}
+			}
+		}
+	}
+
 	// Now update the files on the filesystem.
 	if err := CheckoutIndex(c, CheckoutIndexOptions{Force: true, UpdateStat: true}, checkoutfiles); err != nil {
 		return err
